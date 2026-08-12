@@ -1,0 +1,148 @@
+% =============================================================================
+%  Reinforcement Learning for Robotics — The FCP Way
+%  Print edition, in the Shannon Robotics design language.
+%
+%  Build:  latexmk -pdf main.tex      (or: pdflatex main.tex, three times)
+% =============================================================================
+\documentclass[11pt, twoside, openright]{book}
+
+\usepackage[
+  paperwidth=7in, paperheight=10in,
+  inner=0.95in, outer=0.75in, top=0.85in, bottom=0.95in,
+  headsep=16pt, footskip=28pt
+]{geometry}
+
+\usepackage{shannon}
+
+\hypersetup{
+  pdftitle={Reinforcement Learning for Robotics --- The FCP Way},
+  pdfauthor={Shannon Robotics},
+  pdfsubject={Reinforcement learning, robotics, Rust},
+  colorlinks=true,
+  linkcolor=shAccent,
+  urlcolor=shSkyDark,
+  citecolor=shAccent
+}
+
+\begin{document}
+
+% =============================================================================
+%  Front matter
+% =============================================================================
+\frontmatter
+\pagestyle{empty}
+
+\begin{titlepage}
+\thispagestyle{empty}
+\noindent
+{\color{shTeal}\rule{\textwidth}{3pt}}
+\vspace{2.2in}
+
+\noindent
+{\displayfont\fontsize{10}{12}\selectfont\color{shTealDark}%
+ \MakeUppercase{Shannon Robotics}}
+
+\vspace{10pt}
+\noindent
+{\displayfont\bfseries\fontsize{34}{39}\selectfont\color{shInk}%
+ Reinforcement Learning\\for Robotics}
+
+\vspace{12pt}
+\noindent
+{\displayfont\fontsize{16}{20}\selectfont\color{shInkMuted}%
+ The FCP Way}
+
+\vspace{20pt}
+\noindent
+{\color{shSlate300}\rule{2.4in}{0.6pt}}
+
+\vspace{16pt}
+\noindent
+\begin{minipage}{4.2in}
+{\fontsize{11}{15}\selectfont\color{shInkSecondary}%
+ Complete mathematical foundations, interactive intuition, and working
+ implementations in Rust --- for robots that must act in a world that does not
+ hold still.}
+\end{minipage}
+
+\vfill
+\noindent
+{\displayfont\fontsize{9}{12}\selectfont\color{shInkMuted}%
+ Foundation \ \textperiodcentered\ \ Conceptual \ \textperiodcentered\ \ Practical}
+
+\vspace{6pt}
+\noindent
+{\color{shTeal}\rule{\textwidth}{3pt}}
+\end{titlepage}
+
+% ----- Colophon --------------------------------------------------------------
+\cleardoublepage
+\thispagestyle{empty}
+\vspace*{\fill}
+\noindent
+{\fontsize{9}{13}\selectfont\color{shInkSecondary}
+\textbf{Reinforcement Learning for Robotics --- The FCP Way}\par
+\vspace{5pt}
+Print edition, generated from the interactive web edition.\par
+\vspace{9pt}
+This book is built on four works, cited throughout as baseline references:
+Sutton \& Barto's \emph{Reinforcement Learning: An Introduction} (2nd ed.) for the
+mathematical spine; Kober, Bagnell \& Peters' \emph{Reinforcement Learning in
+Robotics: A Survey} (IJRR 2013) for the robotics bridge; Tang et al.'s
+\emph{Deep Reinforcement Learning for Robotics: A Survey of Real-World Successes}
+(2024) for the modern taxonomy and the L0--L5 maturity rubric; and Akinola's
+Columbia lecture notes for pedagogical framing.\par
+\vspace{9pt}
+Every chapter of the web edition carries interactive simulations that run the
+real algorithms. In this print edition each appears as a described figure with
+its widget identifier, so the two editions can be read side by side.\par
+\vspace{9pt}
+{\color{shInkMuted}Set in Space Grotesk and a Palatino-class serif.
+Composed with \LaTeX.}\par}
+\vspace*{\fill}
+
+% ----- Contents --------------------------------------------------------------
+\cleardoublepage
+\pagestyle{fancy}
+\setcounter{tocdepth}{1}
+\renewcommand{\contentsname}{Contents}
+\tableofcontents
+
+% =============================================================================
+%  Main matter
+% =============================================================================
+\mainmatter
+
+\part{Foundations of Sequential Decision-Making}
+\input{chapters/ch01}
+\input{chapters/ch02}
+\input{chapters/ch03}
+\input{chapters/ch04}
+\input{chapters/ch05}
+\input{chapters/ch06}
+\input{chapters/ch07}
+
+\part{Scaling Up: Function Approximation and Deep RL}
+\input{chapters/ch08}
+\input{chapters/ch09}
+\input{chapters/ch10}
+\input{chapters/ch11}
+\input{chapters/ch12}
+
+\part{The Robotics Side}
+\input{chapters/ch13}
+\input{chapters/ch14}
+\input{chapters/ch15}
+\input{chapters/ch16}
+\input{chapters/ch17}
+
+\part{Competencies: RL on Real Robots}
+\input{chapters/ch18}
+\input{chapters/ch19}
+\input{chapters/ch20}
+
+\part{Frontiers and Capstone}
+\input{chapters/ch21}
+\input{chapters/ch22}
+
+\end{document}

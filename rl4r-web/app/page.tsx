@@ -1,0 +1,165 @@
+import Link from 'next/link';
+import { ArrowRight, Cpu, Eye, Sigma } from 'lucide-react';
+import { CHAPTERS, PARTS, ROBOTS } from '@/lib/chapters';
+
+const LAYERS = [
+  {
+    icon: Sigma,
+    letter: 'F',
+    title: 'Foundation',
+    color: 'var(--series-1)',
+    body: 'Complete mathematical formalism. Definitions, theorems, and derivations carried through to the last line — including the convergence conditions robots routinely violate, stated plainly rather than buried.',
+  },
+  {
+    icon: Eye,
+    letter: 'C',
+    title: 'Conceptual',
+    color: 'var(--series-3)',
+    body: 'Every hard idea gets a visual you can manipulate. Drag γ and watch the horizon stretch; crank Δt until the integrator explodes; slide λ from 0 to 1 and rediscover Monte Carlo.',
+  },
+  {
+    icon: Cpu,
+    letter: 'P',
+    title: 'Practical',
+    color: 'var(--series-2)',
+    body: 'Every algorithm implemented in Rust with the best current crates — burn for learning, rapier for physics, egui for dashboards — as code that trains natively and demos in the browser.',
+  },
+];
+
+export default function HomePage() {
+  return (
+    <div className="mx-auto max-w-5xl px-4">
+      {/* Hero */}
+      <section className="py-16 sm:py-20">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.11em] text-series-1">
+          An interactive web book
+        </p>
+        <h1 className="mt-3 max-w-3xl text-[clamp(2.1rem,6vw,3.4rem)] font-bold leading-[1.08] tracking-[-0.03em] text-ink">
+          Reinforcement Learning for Robotics
+        </h1>
+        <p className="mt-2 text-[clamp(1.1rem,2.5vw,1.5rem)] font-medium tracking-tight text-ink-muted">
+          The FCP Way — Foundation · Conceptual · Practical
+        </p>
+        <p className="mt-6 max-w-2xl text-[16.5px] leading-relaxed text-ink-secondary">
+          Most reinforcement learning texts prove theorems about environments that robots do not
+          live in. This book keeps the mathematics complete, then insists on saying which
+          assumptions break the moment a real machine touches the ground — and what practitioners do
+          about it.
+        </p>
+
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Link
+            href="/chapters/why-rl-for-robotics"
+            className="flex items-center gap-2 rounded-lg bg-series-1 px-4 py-2.5 text-[14px] font-semibold text-white no-underline transition-opacity hover:opacity-90"
+          >
+            Start reading
+            <ArrowRight size={15} />
+          </Link>
+          <Link
+            href="/chapters"
+            className="rounded-lg border border-hairline px-4 py-2.5 text-[14px] font-semibold text-ink no-underline transition-colors hover:bg-surface-sunken"
+          >
+            Browse all {CHAPTERS.length} chapters
+          </Link>
+        </div>
+      </section>
+
+      {/* The method */}
+      <section className="border-t border-hairline py-12">
+        <h2 className="text-[13px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
+          The method
+        </h2>
+        <p className="mt-1.5 max-w-2xl text-[19px] font-semibold tracking-tight text-ink">
+          Three layers, interleaved in every chapter — never one without the others.
+        </p>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          {LAYERS.map((l) => {
+            const Icon = l.icon;
+            return (
+              <div
+                key={l.letter}
+                className="rounded-xl border border-hairline bg-surface p-5"
+                style={{ borderTop: `3px solid ${l.color}` }}
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className="grid h-7 w-7 place-items-center rounded-md text-[13px] font-bold text-white"
+                    style={{ background: l.color }}
+                  >
+                    {l.letter}
+                  </span>
+                  <Icon size={15} style={{ color: l.color }} aria-hidden />
+                  <h3 className="text-[15px] font-semibold tracking-tight text-ink">{l.title}</h3>
+                </div>
+                <p className="mt-2.5 text-[14px] leading-relaxed text-ink-secondary">{l.body}</p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* The cast */}
+      <section className="border-t border-hairline py-12">
+        <h2 className="text-[13px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
+          The cast
+        </h2>
+        <p className="mt-1.5 max-w-2xl text-[19px] font-semibold tracking-tight text-ink">
+          Four robots carry every idea in the book, so abstractions always land somewhere physical.
+        </p>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {Object.values(ROBOTS).map((r) => (
+            <div key={r.name} className="rounded-xl border border-hairline bg-surface p-4">
+              <p className="text-[15px] font-semibold tracking-tight text-ink">{r.name}</p>
+              <p className="mt-0.5 text-[12.5px] text-ink-muted">{r.kind}</p>
+              <p className="mt-2 text-[12.5px] leading-relaxed text-ink-secondary">{r.thread}</p>
+              <p className="mt-2 text-[11.5px] text-ink-muted">Enters in Chapter {r.intro}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Parts */}
+      <section className="border-t border-hairline py-12">
+        <h2 className="text-[13px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
+          The arc
+        </h2>
+        <div className="mt-5 space-y-2">
+          {PARTS.map((part) => (
+            <div
+              key={part.id}
+              className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-xl border border-hairline bg-surface px-4 py-3"
+            >
+              <span className="text-[12px] font-bold uppercase tracking-[0.07em] text-series-1">
+                Part {part.id}
+              </span>
+              <span className="text-[15px] font-semibold tracking-tight text-ink">
+                {part.title}
+              </span>
+              <span className="text-[12.5px] text-ink-muted">
+                Chapters {part.chapters[0]}–{part.chapters[part.chapters.length - 1]}
+              </span>
+              <span className="w-full text-[13px] italic text-ink-secondary">{part.tagline}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Grounding */}
+      <section className="border-t border-hairline py-12 pb-20">
+        <h2 className="text-[13px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
+          Built on
+        </h2>
+        <p className="mt-1.5 max-w-2xl text-[15px] leading-relaxed text-ink-secondary">
+          Four works form the spine: Sutton &amp; Barto&apos;s <em>Reinforcement Learning: An
+          Introduction</em> for the mathematics, Kober, Bagnell &amp; Peters&apos; 2013 survey for
+          the robotics bridge, Tang et al.&apos;s 2024 survey of real-world successes for the modern
+          taxonomy, and Akinola&apos;s lectures for pedagogy. Where those stop, this book continues —
+          PPO and SAC as workhorses, world models, offline RL, teacher–student sim-to-real, and
+          foundation-model frontiers — always grounded in the same spine.
+        </p>
+      </section>
+    </div>
+  );
+}

@@ -1,0 +1,143 @@
+# =============================================================================
+#  Reinforcement Learning for Robotics — The FCP Way
+#
+#  What belongs in this repository: the design docs (TOC.md, Chapter-N.md), the
+#  web edition's source, the LaTeX design system and converter, and CLAUDE.md.
+#  Everything below is either machine-generated, machine-local, or enormous.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+#  Web edition — rl4r-web/
+# -----------------------------------------------------------------------------
+node_modules/
+.pnp
+.pnp.js
+.yarn/
+
+# Next.js build output (~250 MB) and the production export
+.next/
+out/
+build/Release/
+
+# TypeScript incremental state; next-env.d.ts is regenerated on every build
+*.tsbuildinfo
+next-env.d.ts
+
+# Local env files — these hold secrets and must never be committed
+.env
+.env.*
+!.env.example
+
+# Tooling caches
+.eslintcache
+.turbo/
+.vercel/
+
+# -----------------------------------------------------------------------------
+#  Print edition — rl4r-latex/
+# -----------------------------------------------------------------------------
+# Chapters are generated from the web edition by `make convert`. The MDX is the
+# source of truth; editing these by hand loses work on the next build.
+rl4r-latex/chapters/*.tex
+
+# The PDF is reproducible from source with `make`. Un-ignore it (or commit with
+# `git add -f rl4r-latex/main.pdf`) if you want the built book tracked for
+# people who cannot run LaTeX.
+rl4r-latex/main.pdf
+
+# pdfLaTeX pass logs written by the Makefile
+rl4r-latex/build/pass*.log
+
+# Standard LaTeX auxiliary files
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.bbl
+*.blg
+*.bcf
+*.run.xml
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.nav
+*.snm
+*.vrb
+*.idx
+*.ilg
+*.ind
+*.glo
+*.gls
+*.glg
+*.xdv
+
+# -----------------------------------------------------------------------------
+#  Rust — the P-layer crates, when they land
+# -----------------------------------------------------------------------------
+target/
+**/*.rs.bk
+Cargo.lock.orig
+# wasm-pack / trunk output
+pkg/
+dist/
+
+# -----------------------------------------------------------------------------
+#  Python — the MDX→LaTeX converter
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+
+# -----------------------------------------------------------------------------
+#  Editors and operating systems
+# -----------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+
+# Keep shared VS Code settings, drop personal ones
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# -----------------------------------------------------------------------------
+#  Claude Code
+# -----------------------------------------------------------------------------
+# Project instructions (CLAUDE.md) and shared settings are tracked; per-user
+# overrides and local state are not.
+.claude/settings.local.json
+.claude/local/
+
+# -----------------------------------------------------------------------------
+#  Scratch
+# -----------------------------------------------------------------------------
+scratch/
+tmp/
+*.tmp
+*.bak
+
+# -----------------------------------------------------------------------------
+#  Baseline reference PDFs — RLBooks/  (13 MB, third-party, copyrighted)
+#
+#  Left TRACKED by default because CLAUDE.md's workflow requires citations to be
+#  verified against them, and a fresh clone is useless without them.
+#
+#  Uncomment the two lines below before publishing this repository anywhere
+#  public — redistributing Sutton & Barto's book and the surveyed papers is not
+#  yours to do, and a README pointing at their sources is the safer route.
+# -----------------------------------------------------------------------------
+# RLBooks/**/*.pdf
+# !RLBooks/**/README.md
