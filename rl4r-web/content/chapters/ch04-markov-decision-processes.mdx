@@ -230,6 +230,8 @@ Tang and colleagues organize this along three axes. The **action-space level** m
 
 Each combination is a *different MDP for the same physical task*. Rusty at grid level — this chapter — has 80 states and four actions. Rusty at velocity level has a continuous state and continuous actions. Rusty at torque level, Chapter 13's territory, adds motor dynamics.
 
+<WarehouseEditor />
+
 <Callout variant="insight" title="Difficulty moves; it does not vanish">
 Choosing a high-level action space makes the RL problem easier — but only because a hand-written low-level controller is absorbing the difficulty. The composite system is exactly as complicated as it was; you have decided which part learns and which part you write.
 

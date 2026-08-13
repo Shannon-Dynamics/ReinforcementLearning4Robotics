@@ -20,6 +20,14 @@ import { LineChart } from '@/components/viz/LineChart';
  */
 export function TdDashboard() {
   const [kind, setKind] = useState<LearnerKind>('qlearning');
+  /**
+   * Driving it yourself is the fastest way to feel what the agent is up
+   * against: no map, slippery floor, and a −10 shelf you cannot see coming
+   * from the value function you do not have.
+   */
+  const [driving, setDriving] = useState(false);
+  const [drive, setDrive] = useState<{ s: number; ret: number; steps: number; path: number[]; done: boolean } | null>(null);
+  const [bestHuman, setBestHuman] = useState<number | null>(null);
   const [alpha, setAlpha] = useState(0.15);
   const [epsilon, setEpsilon] = useState(0.2);
   const [playing, setPlaying] = useState(false);
@@ -77,6 +85,41 @@ export function TdDashboard() {
       if (raf.current) cancelAnimationFrame(raf.current);
     };
   }, [playing, speed, runEpisode]);
+
+  const startDrive = useCallback(() => {
+    setDriving(true);
+    setDrive({ s: env.startState, ret: 0, steps: 0, path: [env.startState], done: false });
+  }, [env]);
+
+  useEffect(() => {
+    if (!driving) return;
+    const onKey = (e: KeyboardEvent) => {
+      const map: Record<string, number> = {
+        ArrowUp: 0, ArrowRight: 1, ArrowDown: 2, ArrowLeft: 3,
+        w: 0, d: 1, s: 2, a: 3,
+      };
+      const a = map[e.key];
+      if (a === undefined) return;
+      e.preventDefault();
+      setDrive((cur) => {
+        if (!cur || cur.done) return cur;
+        const t = env.step(cur.s, a as 0 | 1 | 2 | 3, rng.current);
+        const next = {
+          s: t.next,
+          ret: cur.ret + t.reward,
+          steps: cur.steps + 1,
+          path: [...cur.path, t.next],
+          done: t.done || cur.steps + 1 >= 400,
+        };
+        if (next.done && t.done) {
+          setBestHuman((b) => (b === null ? next.ret : Math.max(b, next.ret)));
+        }
+        return next;
+      });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [driving, env]);
 
   const V = learner.current?.valueFunction();
   const policy = learner.current?.greedyPolicy();
@@ -145,7 +188,35 @@ export function TdDashboard() {
               speed={speed}
               onSpeedChange={setSpeed}
             />
+            <button
+              type="button"
+              onClick={() => {
+                if (driving) {
+                  setDriving(false);
+                  setDrive(null);
+                } else {
+                  setPlaying(false);
+                  startDrive();
+                }
+              }}
+              className="rounded-md border px-2.5 py-1.5 text-[12px] font-medium transition-colors"
+              style={{
+                borderColor: driving ? 'var(--series-2)' : 'var(--border-hairline)',
+                background: driving
+                  ? 'color-mix(in srgb, var(--series-2) 12%, transparent)'
+                  : 'transparent',
+                color: driving ? 'var(--text-primary)' : 'var(--text-secondary)',
+              }}
+            >
+              {driving ? 'Stop driving' : 'Drive it yourself'}
+            </button>
           </div>
+          {driving && (
+            <p className="rounded-md border border-hairline bg-surface-sunken px-2.5 py-1.5 text-[12px] text-ink-secondary">
+              Arrow keys or WASD. You get the same slippery floor and the same −10 shelves the
+              agent does — and, like the agent at episode 1, no value function to consult.
+            </p>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             <Slider
               label="Learning rate α"
@@ -168,16 +239,17 @@ export function TdDashboard() {
           </div>
         </div>
       }
-      caption="Press play and watch value bleed backwards from the dock. Early on the arrows are nonsense because every Q is zero and ties break at random; the policy sharpens only where the TD error has actually reached. Set ε = 0 and the run usually stalls — with no exploration Rusty commits to the first corridor that ever paid off."
+      caption="Try 'Drive it yourself' before training anything: no heatmap, no arrows, just the floor and the consequences — which is exactly Rusty's situation at episode 1. Then train the agent and watch it overtake your best run. Press play and watch value bleed backwards from the dock. Early on the arrows are nonsense because every Q is zero and ties break at random; the policy sharpens only where the TD error has actually reached. Set ε = 0 and the run usually stalls — with no exploration Rusty commits to the first corridor that ever paid off."
     >
       <div className="grid gap-4 lg:grid-cols-[auto,1fr]">
         <div>
           {V && policy ? (
             <GridWorldCanvas
               env={env}
-              V={V}
-              policy={policy}
-              path={last?.path}
+              V={driving ? undefined : V}
+              policy={driving ? undefined : policy}
+              path={driving ? drive?.path : last?.path}
+              agentState={driving ? drive?.s : undefined}
               cellSize={32}
             />
           ) : null}
@@ -205,6 +277,38 @@ export function TdDashboard() {
               value={last?.epsilon ?? epsilon}
               hint="exploration remaining"
             />
+            {(driving || bestHuman !== null) && (
+              <>
+                <StatTile
+                  label="Your return"
+                  value={drive?.ret ?? 0}
+                  status={drive?.done && drive.ret > 0 ? 'good' : undefined}
+                  hint={
+                    drive?.done
+                      ? drive.s === env.goalState
+                        ? `docked in ${drive.steps} steps`
+                        : 'gave up'
+                      : `${drive?.steps ?? 0} steps so far`
+                  }
+                />
+                <StatTile
+                  label="Your best vs agent"
+                  value={
+                    bestHuman !== null && last
+                      ? `${bestHuman.toFixed(0)} vs ${last.totalReward.toFixed(0)}`
+                      : bestHuman !== null
+                        ? bestHuman.toFixed(0)
+                        : '—'
+                  }
+                  mono={false}
+                  hint={
+                    bestHuman !== null && last && bestHuman >= last.totalReward
+                      ? 'you are still ahead'
+                      : 'the agent has caught up'
+                  }
+                />
+              </>
+            )}
           </div>
           <LineChart
             data={curves.returns}

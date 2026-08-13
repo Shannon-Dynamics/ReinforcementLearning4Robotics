@@ -48,6 +48,12 @@ const PIPELINES: Record<Arch, { stages: Stage[]; summary: string }> = {
 /**
  * `ch19-pipeline-switcher` — end-to-end versus modular, with the trade made explicit.
  *
+ * NOTE ON FIDELITY: unlike most simulations in this book, this one does not run
+ * the architectures it compares — training a SLAM stack and an end-to-end
+ * policy in the browser is not feasible. The curves encode the survey's
+ * qualitative findings, and the widget is labelled in the interface as a
+ * conceptual comparison so no reader mistakes it for a measurement.
+ *
  * Tang's survey finds neither architecture universally superior, and the reason
  * is that they fail differently. Modular stacks degrade predictably and can be
  * debugged stage by stage; end-to-end policies handle situations nobody wrote a
@@ -96,7 +102,7 @@ export function PipelineSwitcher() {
     <SimPanel
       title="End-to-end or modular?"
       id="ch19-pipeline-switcher"
-      subtitle="The same navigation task, three architectures. Neither extreme wins universally — which is the survey's actual finding."
+      subtitle="A conceptual comparison, not a simulation: the curves encode the survey's qualitative findings, because training a SLAM stack and an end-to-end policy in the browser is not feasible."
       controls={
         <div className="flex flex-wrap items-end gap-4">
           <Segmented

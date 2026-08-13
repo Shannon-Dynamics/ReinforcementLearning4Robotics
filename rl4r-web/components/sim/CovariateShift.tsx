@@ -4,184 +4,259 @@ import { useMemo, useState } from 'react';
 import { SimPanel, Slider } from './SimControls';
 import { StatTile } from '@/components/viz/StatTile';
 import { LineChart } from '@/components/viz/LineChart';
-import { mulberry32, gaussian } from '@/lib/rl/random';
 import { useTheme } from '@/components/layout/ThemeProvider';
 import { seriesColor } from '@/lib/theme';
+import { useDebounced, useSimulation, useWidgetState } from '@/lib/sim/useSimulation';
+
+interface Result {
+  clonePath: Array<{ x: number; y: number }>;
+  expertPath: Array<{ x: number; y: number }>;
+  deviations: number[];
+  finalDeviation: number;
+  meanDeviation: number;
+  datasetSize: number;
+  trainLoss: number;
+}
+
+const DEFAULTS = { demos: 12, horizon: 220, noise: 0.06, dagger: false };
 
 /**
- * `ch16-covariate-drift` — why behaviour cloning fails in a way supervised
- * learning does not.
+ * `ch16-covariate-drift` — behaviour cloning that actually fails.
  *
- * The cloned policy makes a small mistake, which moves it slightly off the
- * demonstrated distribution, where it was never trained — so it makes a bigger
- * mistake. Errors compound quadratically in the horizon (Ross & Bagnell's
- * T²ε bound) rather than linearly. The widget draws the demonstrated lane, the
- * cloned rollout drifting off it, and the growing error cone.
+ * A neural network is fitted to state–action pairs from an expert following a
+ * lane, then rolled out on its own. The drift is not drawn: it is what the
+ * trained policy does when its own small errors carry it into states the
+ * demonstrations never covered. Switching on DAgger relabels the states the
+ * learner visits, and the same network stops drifting.
+ *
+ * The reader can also draw their own demonstrations, in which case the clone
+ * is fitted to those instead — and sparse or shaky demonstrations produce
+ * exactly the failure the theory predicts.
  */
 export function CovariateShift() {
   const { mode } = useTheme();
-  const [epsilon, setEpsilon] = useState(0.04);
-  const [horizon, setHorizon] = useState(120);
-  const [dagger, setDagger] = useState(false);
+  const [state, set, reset] = useWidgetState('ch16-covariate-drift', DEFAULTS);
+  const [userDemos, setUserDemos] = useState<Array<{ x: number; y: number }>>([]);
+  const [drawing, setDrawing] = useState(false);
+  const debounced = useDebounced(state, 400);
+
+  const { data, running, error } = useSimulation<Result>('behaviour-cloning', {
+    demos: debounced.demos,
+    horizon: debounced.horizon,
+    noise: debounced.noise,
+    dagger: debounced.dagger,
+    daggerRounds: 4,
+    userDemos: userDemos.length > 4 ? userDemos : undefined,
+  });
 
   const W = 520;
   const H = 210;
+  const sx = (x: number) => 10 + x * (W - 20);
+  const sy = (y: number) => H - 14 - y * (H - 28);
 
-  const { path, lane, cone, finalError } = useMemo(() => {
-    const rng = mulberry32(3);
-    const laneY = (x: number) => H / 2 + 34 * Math.sin((x / W) * Math.PI * 2.1);
-
-    const lanePts = Array.from({ length: 90 }, (_, i) => {
-      const x = (i / 89) * W;
-      return { x, y: laneY(x) };
-    });
-
-    // Cloned rollout: per-step error ε, and — without DAgger — an extra
-    // penalty that grows with how far off-distribution the state already is.
-    let y = laneY(0);
-    const pts: Array<{ x: number; y: number }> = [{ x: 0, y }];
-    for (let i = 1; i <= horizon; i++) {
-      const x = (i / horizon) * W;
-      const target = laneY(x);
-      const deviation = Math.abs(y - target);
-      // DAgger re-queries the expert off-distribution, so the compounding term
-      // vanishes and the bound becomes linear in T.
-      const compounding = dagger ? 0 : (deviation / 30) * epsilon * 26;
-      const noise = gaussian(rng, 0, epsilon * 12) + compounding * (y > target ? 1 : -1);
-      y = y + (target - y) * (dagger ? 0.45 : 0.16) + noise;
-      y = Math.max(6, Math.min(H - 6, y));
-      pts.push({ x, y });
+  const handlePointer = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!drawing) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - r.left) / r.width) * (W / (W - 20)) - 10 / (W - 20);
+    const y = 1 - ((e.clientY - r.top) / r.height);
+    if (x >= 0 && x <= 1) {
+      setUserDemos((d) => (d.length && x < d[d.length - 1].x ? d : [...d, { x, y }]));
     }
+  };
 
-    const conePts = Array.from({ length: 60 }, (_, i) => {
-      const t = i / 59;
-      const x = t * W;
-      const growth = dagger ? epsilon * horizon * t * 1.2 : epsilon * Math.pow(horizon * t, 1.55) * 0.09;
-      return { x, y: laneY(x), spread: Math.min(H / 2 - 4, growth) };
-    });
-
-    return {
-      path: pts,
-      lane: lanePts,
-      cone: conePts,
-      finalError: Math.abs(pts[pts.length - 1].y - laneY(W)),
-    };
-  }, [epsilon, horizon, dagger]);
-
-  const bounds = useMemo(() => {
-    const ts = Array.from({ length: 40 }, (_, i) => (i + 1) * 8);
+  const boundCurves = useMemo(() => {
+    const eps = debounced.noise;
+    const ts = Array.from({ length: 30 }, (_, i) => (i + 1) * 10);
     return [
-      { id: 'behaviour cloning: O(εT²)', data: ts.map((t) => ({ x: t, y: epsilon * t * t })) },
-      { id: 'DAgger: O(εT)', data: ts.map((t) => ({ x: t, y: epsilon * t })) },
+      { id: 'cloning: O(εT²)', data: ts.map((t) => ({ x: t, y: eps * t * t * 0.001 })) },
+      { id: 'DAgger: O(εT)', data: ts.map((t) => ({ x: t, y: eps * t * 0.02 })) },
     ];
-  }, [epsilon]);
-
-  const pathD = `M${path.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L')}`;
-  const laneD = `M${lane.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L')}`;
-  const coneD =
-    `M${cone.map((p) => `${p.x.toFixed(1)},${(p.y - p.spread).toFixed(1)}`).join(' L')}` +
-    ` L${cone
-      .slice()
-      .reverse()
-      .map((p) => `${p.x.toFixed(1)},${(p.y + p.spread).toFixed(1)}`)
-      .join(' L')} Z`;
+  }, [debounced.noise]);
 
   return (
     <SimPanel
-      title="Covariate shift: the cloned robot drifts"
+      title="The cloned robot drifts"
       id="ch16-covariate-drift"
-      subtitle="Rusty clones a demonstrated lane. Each small error moves him somewhere the demonstrations never went."
+      subtitle="A network is fitted to the expert's state–action pairs, then rolled out on its own. Everything below is the trained policy's real behaviour."
       controls={
-        <div className="flex flex-wrap items-end gap-4">
-          <Slider
-            className="w-48"
-            label="Per-step error ε"
-            value={epsilon}
-            min={0.005}
-            max={0.12}
-            step={0.005}
-            onChange={setEpsilon}
-            format={(v) => v.toFixed(3)}
-            hint="supervised accuracy on the demo distribution"
-          />
-          <Slider
-            className="w-44"
-            label="Horizon T"
-            value={horizon}
-            min={20}
-            max={300}
-            step={10}
-            onChange={setHorizon}
-            format={(v) => v.toFixed(0)}
-          />
-          <label className="flex items-center gap-2 text-[12px] text-ink-secondary">
-            <input
-              type="checkbox"
-              checked={dagger}
-              onChange={(e) => setDagger(e.target.checked)}
-              className="accent-[var(--series-1)]"
+        <div className="space-y-2.5">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Slider
+              label="Demonstrations"
+              value={state.demos}
+              min={2}
+              max={40}
+              step={1}
+              onChange={(v) => set({ demos: v })}
+              format={(v) => v.toFixed(0)}
+              hint={userDemos.length > 4 ? 'ignored — using yours' : 'expert rollouts collected'}
             />
-            Use DAgger (re-query the expert off-distribution)
-          </label>
-        </div>
-      }
-      caption="Behaviour cloning's error is not ε — it is ε multiplied by the horizon, twice over, because each mistake changes the distribution of states the policy will face next. Tick DAgger and the cone collapses to a linear band: asking the expert what to do in the states the *learner* actually visits is what breaks the feedback loop."
-    >
-      <div className="grid gap-3 lg:grid-cols-[1fr,320px]">
-        <div>
-          <svg
-            width={W}
-            height={H}
-            viewBox={`0 0 ${W} ${H}`}
-            className="max-w-full rounded-lg"
-            style={{ background: 'var(--surface-sunken)' }}
-            role="img"
-            aria-label="Demonstrated lane with a cloned rollout drifting away inside a growing error cone"
-          >
-            <path d={coneD} fill={seriesColor(0, mode)} opacity={0.13} />
-            <path
-              d={laneD}
-              fill="none"
-              stroke={seriesColor(0, mode)}
-              strokeWidth={2}
-              strokeDasharray="5 4"
+            <Slider
+              label="Expert action noise ε"
+              value={state.noise}
+              min={0}
+              max={0.3}
+              step={0.01}
+              onChange={(v) => set({ noise: v })}
+              hint="imperfect demonstrations"
             />
-            <path d={pathD} fill="none" stroke={seriesColor(1, mode)} strokeWidth={2.5} />
-            <circle
-              cx={path[path.length - 1].x}
-              cy={path[path.length - 1].y}
-              r={6}
-              fill={seriesColor(1, mode)}
-              stroke="var(--surface-1)"
-              strokeWidth={2}
-            />
-            <text x={8} y={16} fontSize={10} fill="var(--text-muted)">
-              — — demonstrated lane · —— cloned rollout · shaded = error cone
-            </text>
-          </svg>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <StatTile
-              label="Final deviation"
-              value={finalError}
-              unit="px"
-              status={finalError > 40 ? 'critical' : finalError > 15 ? 'warning' : 'good'}
-            />
-            <StatTile
-              label="Error bound"
-              value={dagger ? epsilon * horizon : epsilon * horizon * horizon}
-              hint={dagger ? 'O(εT) — linear' : 'O(εT²) — quadratic'}
+            <Slider
+              label="Horizon T"
+              value={state.horizon}
+              min={60}
+              max={400}
+              step={20}
+              onChange={(v) => set({ horizon: v })}
+              format={(v) => v.toFixed(0)}
             />
           </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-[12px] text-ink-secondary">
+              <input
+                type="checkbox"
+                checked={state.dagger}
+                onChange={(e) => set({ dagger: e.target.checked })}
+                className="accent-[var(--series-1)]"
+              />
+              Use DAgger (relabel the learner&apos;s own states)
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                setDrawing((d) => !d);
+                if (!drawing) setUserDemos([]);
+              }}
+              aria-pressed={drawing}
+              className={`rounded-md border px-2.5 py-1 text-[11.5px] font-medium transition-colors ${
+                drawing
+                  ? 'border-series-2 bg-series-2 text-white'
+                  : 'border-hairline text-ink-secondary hover:bg-surface-sunken'
+              }`}
+            >
+              {drawing ? 'Drawing — release to finish' : 'Demonstrate it yourself'}
+            </button>
+            {userDemos.length > 4 && (
+              <button
+                type="button"
+                onClick={() => setUserDemos([])}
+                className="rounded-md border border-hairline px-2.5 py-1 text-[11.5px] text-ink-secondary hover:bg-surface-sunken"
+              >
+                Clear my demo ({userDemos.length} pts)
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={reset}
+              className="ml-auto rounded-md border border-hairline px-2.5 py-1 text-[11.5px] text-ink-secondary hover:bg-surface-sunken"
+            >
+              Reset
+            </button>
+          </div>
         </div>
+      }
+      caption="Cut the demonstrations to two or three and the clone leaves the lane early — not because the network failed to fit, but because it fits only where the expert went, and its own first mistake takes it somewhere else. Tick DAgger and the same architecture, the same data budget, stays on the lane: asking the expert what to do in the states the LEARNER visits is what breaks the feedback loop. Draw your own demonstration to watch it fail on data you produced."
+    >
+      {error ? (
+        <p className="rounded-lg border border-hairline px-3 py-2 text-[12.5px] text-status-critical">
+          Simulation failed: {error}
+        </p>
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-[1fr,300px]">
+          <div>
+            <svg
+              width={W}
+              height={H}
+              viewBox={`0 0 ${W} ${H}`}
+              className="max-w-full touch-none rounded-lg"
+              style={{ background: 'var(--surface-sunken)', cursor: drawing ? 'crosshair' : 'default' }}
+              onPointerDown={(e) => drawing && handlePointer(e)}
+              onPointerMove={handlePointer}
+              onPointerUp={() => setDrawing(false)}
+              role="img"
+              aria-label="Demonstrated lane and the cloned policy's rollout"
+            >
+              {data && (
+                <>
+                  <path
+                    d={`M${data.expertPath.map((p) => `${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' L')}`}
+                    fill="none"
+                    stroke={seriesColor(0, mode)}
+                    strokeWidth={2}
+                    strokeDasharray="5 4"
+                  />
+                  <path
+                    d={`M${data.clonePath.map((p) => `${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' L')}`}
+                    fill="none"
+                    stroke={seriesColor(1, mode)}
+                    strokeWidth={2.5}
+                  />
+                  <circle
+                    cx={sx(data.clonePath[data.clonePath.length - 1].x)}
+                    cy={sy(data.clonePath[data.clonePath.length - 1].y)}
+                    r={6}
+                    fill={seriesColor(1, mode)}
+                    stroke="var(--surface-1)"
+                    strokeWidth={2}
+                  />
+                </>
+              )}
+              {userDemos.length > 1 && (
+                <path
+                  d={`M${userDemos.map((p) => `${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' L')}`}
+                  fill="none"
+                  stroke={seriesColor(2, mode)}
+                  strokeWidth={2.5}
+                  opacity={0.9}
+                />
+              )}
+              <text x={10} y={14} fontSize={9.5} fill="var(--text-muted)">
+                {drawing
+                  ? 'drag left to right to demonstrate'
+                  : '— — expert lane · —— cloned rollout'}
+                {userDemos.length > 4 ? ' · green: your demonstration' : ''}
+              </text>
+              {running && (
+                <text x={W / 2} y={H / 2} textAnchor="middle" fontSize={12} fill="var(--text-muted)">
+                  training the clone…
+                </text>
+              )}
+            </svg>
 
-        <LineChart
-          data={bounds}
-          height={250}
-          xLegend="horizon T"
-          yLegend="worst-case regret"
-          caption="Ross & Bagnell (2011): cloning's quadratic bound vs DAgger's linear one."
-        />
-      </div>
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              <StatTile
+                label="Final deviation"
+                value={data?.finalDeviation ?? 0}
+                status={
+                  (data?.finalDeviation ?? 0) > 0.2
+                    ? 'critical'
+                    : (data?.finalDeviation ?? 0) > 0.08
+                      ? 'warning'
+                      : 'good'
+                }
+                hint="distance off the lane at the end"
+              />
+              <StatTile
+                label="Mean deviation"
+                value={data?.meanDeviation ?? 0}
+                hint="averaged over the rollout"
+              />
+              <StatTile
+                label="Training pairs"
+                value={data?.datasetSize ?? 0}
+                hint={state.dagger ? 'grows each DAgger round' : 'from the demonstrations'}
+              />
+            </div>
+          </div>
+
+          <LineChart
+            data={boundCurves}
+            height={250}
+            xLegend="horizon T"
+            yLegend="worst-case regret"
+            caption="Ross & Bagnell (2011): cloning's quadratic bound against DAgger's linear one."
+          />
+        </div>
+      )}
     </SimPanel>
   );
 }

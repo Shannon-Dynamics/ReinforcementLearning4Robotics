@@ -1,179 +1,195 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { LineChart } from '@/components/viz/LineChart';
 import { StatTile } from '@/components/viz/StatTile';
 import { SimPanel, Slider } from './SimControls';
-import { useTheme } from '@/components/layout/ThemeProvider';
-import { seriesColor } from '@/lib/theme';
-import { mulberry32 } from '@/lib/rl/random';
+import { useDebounced, useSimulation, useWidgetState } from '@/lib/sim/useSimulation';
+import { smooth } from '@/lib/rl/td';
+
+interface Ablation {
+  returns: number[];
+  qMax: number[];
+  tdError: number[];
+}
+type Result = Record<'both' | 'noReplay' | 'noTarget' | 'neither', Ablation>;
+
+const CONFIGS = [
+  { key: 'both', label: 'replay + target' },
+  { key: 'noReplay', label: 'no replay' },
+  { key: 'noTarget', label: 'no target network' },
+  { key: 'neither', label: 'neither' },
+] as const;
+
+const DEFAULTS = {
+  bufferSize: 2000,
+  syncEvery: 100,
+  alpha: 0.35,
+  show: 'returns' as string,
+};
 
 /**
- * `ch09-replay-target` — the two pieces of surgery that made deep Q-learning work.
+ * `ch09-replay-target` — the two pieces of surgery, measured.
  *
- * Consecutive transitions from a robot are strongly correlated, which violates
- * the i.i.d. assumption every gradient method relies on; and a target computed
- * from the network being trained is a target that runs away as you chase it.
- * The replay buffer fixes the first, the target network the second. The reader
- * disables each and watches the training curve degrade in its characteristic way.
+ * Four agents actually train on Rusty's warehouse, differing only in whether
+ * they sample from a replay buffer and whether they bootstrap from a frozen
+ * target. The learning rate is deliberately aggressive, because the failures
+ * this chapter describes are the ones that appear when you push a method
+ * slightly past where it is comfortable.
  */
 export function ReplayBuffer() {
-  const { mode } = useTheme();
-  const [useReplay, setUseReplay] = useState(true);
-  const [useTarget, setUseTarget] = useState(true);
-  const [bufferSize, setBufferSize] = useState(2000);
-  const [syncEvery, setSyncEvery] = useState(100);
+  const [state, set, reset] = useWidgetState('ch09-replay-target', DEFAULTS);
+  const debounced = useDebounced(state, 400);
 
-  const { curves, stability, correlation } = useMemo(() => {
-    const rng = mulberry32(17);
-    const STEPS = 400;
+  const { data, running, error } = useSimulation<Result>('replay-ablation', {
+    episodes: 260,
+    bufferSize: debounced.bufferSize,
+    syncEvery: debounced.syncEvery,
+    alpha: debounced.alpha,
+    seeds: 3,
+  });
 
-    // A stylized learning-progress model: correlated batches slow convergence
-    // and inflate variance; a moving target adds a divergence-prone oscillation.
-    const batchCorrelation = useReplay ? Math.max(0.05, 32 / Math.sqrt(bufferSize)) : 0.92;
-    const targetLag = useTarget ? syncEvery : 1;
+  const metric = state.show as 'returns' | 'qMax' | 'tdError';
 
-    const loss: Array<{ x: number; y: number }> = [];
-    const value: Array<{ x: number; y: number }> = [];
+  const series = useMemo(() => {
+    if (!data) return [];
+    return CONFIGS.map((c) => {
+      const raw = data[c.key][metric];
+      const sm = smooth(raw, metric === 'returns' ? 18 : 8);
+      const stride = Math.max(1, Math.floor(sm.length / 180));
+      return {
+        id: c.label,
+        data: sm
+          .map((y, x) => ({ x: x + 1, y }))
+          .filter((_, i) => i % stride === 0),
+      };
+    });
+  }, [data, metric]);
 
-    let q = 0;
-    let target = 0;
-    let osc = 0;
+  // Final-quarter averages, which is where the differences are legible.
+  const summary = useMemo(() => {
+    if (!data) return [];
+    return CONFIGS.map((c) => {
+      const r = data[c.key].returns;
+      const tail = r.slice(Math.floor(r.length * 0.75));
+      const mean = tail.reduce((a, b) => a + b, 0) / tail.length;
+      const varr = tail.reduce((a, b) => a + (b - mean) ** 2, 0) / tail.length;
+      return { label: c.label, mean, sd: Math.sqrt(varr) };
+    });
+  }, [data]);
 
-    for (let t = 0; t < STEPS; t++) {
-      if (t % targetLag === 0) target = q;
-
-      // Chasing a target that moves with you produces growing oscillation.
-      const chase = useTarget ? 0 : 0.045 * (q - target + 1);
-      osc = 0.9 * osc + chase;
-
-      const noise = (rng() - 0.5) * batchCorrelation * 2.2;
-      const signal = (10 - q) * 0.045;
-      q = q + signal + noise + osc;
-
-      const err = Math.abs(10 - q) + Math.abs(osc) * 5;
-      loss.push({ x: t, y: Math.min(err, 40) });
-      value.push({ x: t, y: Math.max(-15, Math.min(30, q)) });
-    }
-
-    const tail = loss.slice(-80).map((p) => p.y);
-    const mean = tail.reduce((a, b) => a + b, 0) / tail.length;
-    const variance = tail.reduce((a, b) => a + (b - mean) ** 2, 0) / tail.length;
-
-    return {
-      curves: [
-        { id: 'TD error magnitude', data: loss },
-        { id: 'Q estimate (true value = 10)', data: value },
-      ],
-      stability: variance,
-      correlation: batchCorrelation,
-    };
-  }, [useReplay, useTarget, bufferSize, syncEvery]);
+  const best = summary.length ? Math.max(...summary.map((s) => s.mean)) : 0;
 
   return (
     <SimPanel
       title="Replay and target networks as variance surgery"
       id="ch09-replay-target"
-      subtitle="Switch each off and watch the characteristic failure appear: correlated batches add noise, a moving target adds oscillation."
+      subtitle="Four Q-learning agents trained on the warehouse, averaged over three seeds. The only differences are replay and the target network."
       controls={
         <div className="space-y-2.5">
-          <div className="flex flex-wrap gap-3">
-            <label className="flex items-center gap-2 text-[12px] text-ink-secondary">
-              <input
-                type="checkbox"
-                checked={useReplay}
-                onChange={(e) => setUseReplay(e.target.checked)}
-                className="accent-[var(--series-1)]"
-              />
-              Experience replay
-            </label>
-            <label className="flex items-center gap-2 text-[12px] text-ink-secondary">
-              <input
-                type="checkbox"
-                checked={useTarget}
-                onChange={(e) => setUseTarget(e.target.checked)}
-                className="accent-[var(--series-1)]"
-              />
-              Target network
-            </label>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             <Slider
               label="Replay buffer size"
-              value={bufferSize}
-              min={100}
+              value={state.bufferSize}
+              min={200}
               max={20000}
-              step={100}
-              onChange={setBufferSize}
+              step={200}
+              onChange={(v) => set({ bufferSize: v })}
               format={(v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0))}
-              hint="larger buffer ⇒ less correlated batches"
+              hint="larger ⇒ less correlated batches"
             />
             <Slider
               label="Target sync interval"
-              value={syncEvery}
+              value={state.syncEvery}
               min={1}
               max={500}
               step={1}
-              onChange={setSyncEvery}
+              onChange={(v) => set({ syncEvery: v })}
               format={(v) => `${v.toFixed(0)} steps`}
-              hint="longer ⇒ more stable, slower to track"
+              hint="longer ⇒ steadier, slower to track"
             />
+            <Slider
+              label="Learning rate α"
+              value={state.alpha}
+              min={0.05}
+              max={0.8}
+              step={0.05}
+              onChange={(v) => set({ alpha: v })}
+              hint="raise it to expose the instability"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {(
+              [
+                ['returns', 'Episode return'],
+                ['qMax', 'max Q at start state'],
+                ['tdError', 'mean |δ|'],
+              ] as const
+            ).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => set({ show: k })}
+                aria-pressed={metric === k}
+                className={`rounded-md border px-2 py-1 text-[11.5px] font-medium transition-colors ${
+                  metric === k
+                    ? 'border-series-1 bg-series-1 text-white'
+                    : 'border-hairline text-ink-secondary hover:bg-surface-sunken'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={reset}
+              className="ml-auto rounded-md border border-hairline px-2.5 py-1 text-[11.5px] text-ink-secondary transition-colors hover:bg-surface-sunken hover:text-ink"
+            >
+              Reset
+            </button>
           </div>
         </div>
       }
-      caption="Turn off replay and the estimate rattles: consecutive robot transitions are nearly identical, so each gradient step sees almost the same data and the batch carries far less information than its size suggests. Turn off the target network and the estimate oscillates and can run away: you are regressing toward a quantity that moves every time you update."
+      caption="Switch to 'max Q at start state' and watch what the target network is for: without it, the estimate chases itself upward — you are regressing toward a quantity that moves every time you update. Turn the learning rate up and the effect arrives sooner. Shrink the buffer toward 200 and the no-replay and replay curves converge, because a small buffer is nearly as correlated as no buffer at all."
     >
-      <div className="grid gap-3 lg:grid-cols-[1fr,205px]">
-        <LineChart
-          data={curves}
-          height={255}
-          xLegend="gradient step"
-          yLegend="magnitude"
-        />
-        <div className="space-y-2">
-          <StatTile
-            label="Batch correlation"
-            value={correlation}
-            status={correlation > 0.5 ? 'critical' : correlation > 0.2 ? 'warning' : 'good'}
-            hint={useReplay ? 'sampled uniformly from buffer' : 'consecutive transitions'}
+      {error ? (
+        <p className="rounded-lg border border-hairline px-3 py-2 text-[12.5px] text-status-critical">
+          Simulation failed: {error}
+        </p>
+      ) : (
+        <div className="space-y-3">
+          <LineChart
+            data={series}
+            height={260}
+            xLegend="episode"
+            yLegend={
+              metric === 'returns'
+                ? 'return (smoothed)'
+                : metric === 'qMax'
+                  ? 'max Q(s₀, ·)'
+                  : 'mean |δ|'
+            }
+            caption={
+              running
+                ? 'Training four agents…'
+                : 'Each curve is a mean over three seeds; the only difference between them is the surgery.'
+            }
           />
-          <StatTile
-            label="Tail variance"
-            value={stability}
-            status={stability > 8 ? 'critical' : stability > 2 ? 'warning' : 'good'}
-            hint="spread over the last 80 steps"
-          />
-          <div className="rounded-lg border border-hairline p-2.5">
-            <p className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
-              Buffer occupancy
-            </p>
-            <svg width="100%" height={40} viewBox="0 0 180 40" role="img" aria-label="Replay buffer sampling illustration">
-              {Array.from({ length: 24 }, (_, i) => {
-                const recent = i > 19;
-                return (
-                  <rect
-                    key={i}
-                    x={2 + i * 7.4}
-                    y={useReplay ? 6 : recent ? 6 : 20}
-                    width={6}
-                    height={useReplay ? 28 : recent ? 28 : 14}
-                    rx={2}
-                    fill={
-                      useReplay || recent ? seriesColor(0, mode) : 'var(--baseline)'
-                    }
-                    opacity={useReplay ? 0.55 + (i % 5) * 0.09 : recent ? 1 : 0.25}
-                  />
-                );
-              })}
-            </svg>
-            <p className="mt-1 text-[10.5px] leading-snug text-ink-muted">
-              {useReplay
-                ? 'Batches drawn from across the whole history.'
-                : 'Only the newest transitions are seen — and they all look alike.'}
-            </p>
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+            {summary.map((s) => (
+              <StatTile
+                key={s.label}
+                label={s.label}
+                value={s.mean}
+                hint={`final-quarter return · sd ${s.sd.toFixed(1)}`}
+                status={
+                  s.mean >= best - 1 ? 'good' : s.mean < best - 12 ? 'critical' : 'warning'
+                }
+              />
+            ))}
           </div>
         </div>
-      </div>
+      )}
     </SimPanel>
   );
 }

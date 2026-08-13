@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { SimPanel, Slider } from './SimControls';
 import { StatTile } from '@/components/viz/StatTile';
 import { LineChart } from '@/components/viz/LineChart';
@@ -22,6 +22,15 @@ export function DmpSculptor() {
   const [tau, setTau] = useState(1.0);
   const [nBasis, setNBasis] = useState(10);
   const [forcingScale, setForcingScale] = useState(1.0);
+  /**
+   * A demonstration the reader drew. Locally weighted regression fits the
+   * forcing term to it — which is exactly how a DMP is taught from a
+   * kinesthetic demonstration on a real arm, and it is a linear solve rather
+   * than an RL problem.
+   */
+  const [demo, setDemo] = useState<number[] | null>(null);
+  const drawing = useRef(false);
+  const demoBuf = useRef<Array<{ t: number; y: number }>>([]);
 
   const { trajectory, basisCurves, forcing, converged } = useMemo(() => {
     // Canonical system: ẋ = −α_x x / τ, decaying from 1 to 0. It is the DMP's
@@ -42,12 +51,43 @@ export function DmpSculptor() {
       i < nBasis - 1 ? 1.2 / Math.pow(centers[i + 1] - centers[i], 2) : 1.2 / Math.pow(0.05, 2),
     );
 
-    // Weights that would be fitted from a demonstration by locally weighted
-    // regression. Here: a fixed "reach over an obstacle then descend" shape.
-    const weights = Array.from({ length: nBasis }, (_, i) => {
-      const t = i / (nBasis - 1);
-      return forcingScale * (140 * Math.sin(Math.PI * t) - 60 * Math.sin(2 * Math.PI * t));
-    });
+    // Weights come either from the reader's drawing (locally weighted
+    // regression on the demonstrated trajectory) or from a canned shape.
+    let weights: number[];
+    if (demo && demo.length > 8) {
+      const n = demo.length;
+      const y0d = demo[0];
+      const gd = demo[n - 1];
+      const dtD = 1 / n;
+      const dy: number[] = demo.map((_, i) => (i === 0 ? 0 : (demo[i] - demo[i - 1]) / dtD));
+      const ddy: number[] = dy.map((_, i) => (i === 0 ? 0 : (dy[i] - dy[i - 1]) / dtD));
+
+      // Invert the transformation system for the forcing term it implies.
+      const xs: number[] = [];
+      const targets: number[] = [];
+      let xx = 1;
+      for (let i = 0; i < n; i++) {
+        targets.push(ddy[i] - alphaY * (betaY * (gd - demo[i]) - dy[i]));
+        xs.push(xx);
+        xx -= alphaX * xx * dtD;
+      }
+      weights = centers.map((c, k) => {
+        let num = 0;
+        let den = 0;
+        for (let i = 0; i < n; i++) {
+          const psi = Math.exp(-widths[k] * Math.pow(xs[i] - c, 2));
+          const sfac = xs[i] * (gd - y0d);
+          num += psi * sfac * targets[i];
+          den += psi * sfac * sfac;
+        }
+        return forcingScale * (Math.abs(den) > 1e-9 ? num / den : 0);
+      });
+    } else {
+      weights = Array.from({ length: nBasis }, (_, i) => {
+        const t = i / (nBasis - 1);
+        return forcingScale * (140 * Math.sin(Math.PI * t) - 60 * Math.sin(2 * Math.PI * t));
+      });
+    }
 
     let x = 1;
     let y = y0;
@@ -100,7 +140,7 @@ export function DmpSculptor() {
       forcing: forcingTrace,
       converged: Math.abs(y - goal),
     };
-  }, [goal, tau, nBasis, forcingScale]);
+  }, [goal, tau, nBasis, forcingScale, demo]);
 
   const W = 400;
   const H = 175;
@@ -145,6 +185,13 @@ export function DmpSculptor() {
             format={(v) => v.toFixed(0)}
             hint="capacity of the forcing term"
           />
+          <button
+            type="button"
+            onClick={() => setDemo(null)}
+            className="h-fit self-end rounded-md border border-hairline px-2.5 py-1.5 text-[12px] text-ink-secondary transition-colors hover:bg-surface-sunken hover:text-ink"
+          >
+            {demo ? 'Clear my demonstration' : 'No demonstration yet'}
+          </button>
           <Slider
             label="Forcing amplitude"
             value={forcingScale}
@@ -156,7 +203,7 @@ export function DmpSculptor() {
           />
         </div>
       }
-      caption="Set the forcing amplitude to zero and the DMP becomes a plain critically-damped spring: it reaches the goal by the most boring path possible. Turn it up and the demonstrated shape reappears — the arc over the obstacle, the descent onto the target. Now drag the goal: the shape deforms smoothly rather than breaking, and the trajectory still ends exactly at g. That guarantee comes from the canonical system decaying to zero, which forces f to vanish and leaves the spring in charge at the end."
+      caption="Drag across the plot to draw a movement — an arc over an obstacle, a hook, anything — and locally weighted regression fits the forcing term to it in one linear solve, no reinforcement learning involved. Then drag the goal: your shape deforms smoothly and still terminates exactly at g, which is the generalization property that made DMPs the standard motor representation. Set the forcing amplitude to zero and the DMP becomes a plain critically-damped spring: it reaches the goal by the most boring path possible. Turn it up and the demonstrated shape reappears — the arc over the obstacle, the descent onto the target. Now drag the goal: the shape deforms smoothly rather than breaking, and the trajectory still ends exactly at g. That guarantee comes from the canonical system decaying to zero, which forces f to vanish and leaves the spring in charge at the end."
     >
       <div className="grid gap-3 lg:grid-cols-[1fr,185px]">
         <div>
@@ -164,10 +211,49 @@ export function DmpSculptor() {
             width={W}
             height={H}
             viewBox={`0 0 ${W} ${H}`}
-            className="max-w-full rounded-lg"
-            style={{ background: 'var(--surface-sunken)' }}
+            className="max-w-full touch-none rounded-lg"
+            style={{
+              background: 'var(--surface-sunken)',
+              cursor: 'crosshair',
+            }}
+            onPointerDown={(e) => {
+              drawing.current = true;
+              demoBuf.current = [];
+              e.currentTarget.setPointerCapture?.(e.pointerId);
+            }}
+            onPointerMove={(e) => {
+              if (!drawing.current) return;
+              const r = e.currentTarget.getBoundingClientRect();
+              const scx = W / r.width;
+              const scy = H / r.height;
+              const px = (e.clientX - r.left) * scx;
+              const py = (e.clientY - r.top) * scy;
+              // Invert the screen mapping back into (time, position).
+              const t = ((px - 34) / (W - 50)) * 3.6;
+              const yv = lo + ((H - 24 - py) / (H - 44)) * (hi - lo);
+              if (t >= 0 && t <= 3.6) demoBuf.current.push({ t, y: yv });
+            }}
+            onPointerUp={() => {
+              drawing.current = false;
+              const pts = demoBuf.current;
+              if (pts.length < 12) return;
+              // Resample onto a uniform time grid — LWR wants even spacing.
+              const N = 120;
+              const t0 = pts[0].t;
+              const t1 = pts[pts.length - 1].t;
+              if (t1 - t0 < 0.4) return;
+              const sampled: number[] = [];
+              for (let i = 0; i < N; i++) {
+                const tt = t0 + ((t1 - t0) * i) / (N - 1);
+                let k = 0;
+                while (k < pts.length - 1 && pts[k + 1].t < tt) k++;
+                sampled.push(pts[k].y);
+              }
+              setDemo(sampled);
+              setGoal(Number(sampled[sampled.length - 1].toFixed(2)));
+            }}
             role="img"
-            aria-label="DMP trajectory from start to goal, showing the shaped path"
+            aria-label="DMP trajectory from start to goal; drag across to draw your own demonstration"
           >
             <line
               x1={30}
@@ -182,6 +268,18 @@ export function DmpSculptor() {
               goal g
             </text>
 
+            {demo && (
+              <path
+                d={`M${demo
+                  .map((v, i) => `${sx((i / (demo.length - 1)) * 3.6).toFixed(1)},${sy(v).toFixed(1)}`)
+                  .join(' L')}`}
+                fill="none"
+                stroke={seriesColor(4, mode)}
+                strokeWidth={4}
+                opacity={0.32}
+                strokeLinecap="round"
+              />
+            )}
             <path
               d={`M${trajectory.map((p) => `${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' L')}`}
               fill="none"
@@ -193,7 +291,7 @@ export function DmpSculptor() {
               start
             </text>
             <text x={34} y={14} fontSize={9.5} fill="var(--text-muted)">
-              position y(t)
+              {demo ? 'thick pale: your demonstration · thin: the fitted DMP' : 'position y(t) — drag across to draw a demonstration'}
             </text>
           </svg>
 

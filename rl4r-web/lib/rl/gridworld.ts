@@ -78,9 +78,20 @@ export class GridWorld {
   readonly states: number[];
   readonly startState: number;
   readonly goalState: number;
+  /**
+   * Optional per-cell slip probability, overriding the global one. Chapter 4
+   * describes "slippery patches near the loading bay"; this is what lets a
+   * reader paint them and watch the optimal policy route around them.
+   */
+  readonly slipAt?: (state: number) => number | undefined;
 
-  constructor(map: string[] = WAREHOUSE_MAP, config: Partial<GridConfig> = {}) {
+  constructor(
+    map: string[] = WAREHOUSE_MAP,
+    config: Partial<GridConfig> = {},
+    slipAt?: (state: number) => number | undefined,
+  ) {
     this.map = map;
+    this.slipAt = slipAt;
     this.rows = map.length;
     this.cols = map[0].length;
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -135,7 +146,9 @@ export class GridWorld {
   transitions(s: number, a: Action): Transition[] {
     if (this.isTerminal(s)) return [{ next: s, reward: 0, prob: 1, done: true }];
 
-    const { pSlip, stepReward, bumpReward, goalReward } = this.config;
+    const { stepReward, bumpReward, goalReward } = this.config;
+    // A painted cell may be slipperier than the rest of the floor.
+    const pSlip = this.slipAt?.(s) ?? this.config.pSlip;
     const outcomes: Array<[Action, number]> = [
       [a, 1 - pSlip],
       [((a + 1) % 4) as Action, pSlip / 2],

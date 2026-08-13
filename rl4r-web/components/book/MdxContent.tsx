@@ -38,6 +38,8 @@ import { GraspWrench } from '@/components/sim/GraspWrench';
 import { ReacherKinematics } from '@/components/sim/ReacherKinematics';
 import { SharedAutonomy } from '@/components/sim/SharedAutonomy';
 import { MissionControl } from '@/components/sim/MissionControl';
+import { WarehouseEditor } from '@/components/sim/WarehouseEditor';
+import { RewardDesigner } from '@/components/sim/RewardDesigner';
 import { LineChart } from '@/components/viz/LineChart';
 import { BarChart } from '@/components/viz/BarChart';
 import { StatRow, StatTile } from '@/components/viz/StatTile';
@@ -89,6 +91,8 @@ const components = {
   ReacherKinematics,
   SharedAutonomy,
   MissionControl,
+  WarehouseEditor,
+  RewardDesigner,
 };
 
 const prettyCodeOptions = {

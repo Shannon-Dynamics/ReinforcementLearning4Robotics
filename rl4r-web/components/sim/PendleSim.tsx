@@ -35,6 +35,11 @@ export function PendleSim() {
   const [trace, setTrace] = useState<Array<{ t: number; e: number }>>([]);
   const raf = useRef<number | null>(null);
   const tRef = useRef(0);
+  // Grabbing the bob overrides the dynamics: the reader becomes an external
+  // hand on the system, and letting go hands it back mid-motion.
+  const [grabbed, setGrabbed] = useState(false);
+  const grabRef = useRef<{ theta: number; lastTheta: number; lastT: number } | null>(null);
+  const [pushCount, setPushCount] = useState(0);
 
   const reset = () => {
     setState([Math.PI - 0.15, 0]);
@@ -48,6 +53,16 @@ export function PendleSim() {
     const tick = () => {
       if (!mounted) return;
       setState((s) => {
+        if (grabRef.current) {
+          // Under the reader's hand: position is imposed, velocity is inferred
+          // from how fast they are moving it, so releasing transfers momentum.
+          const now = performance.now();
+          const dtGrab = Math.max(1e-3, (now - grabRef.current.lastT) / 1000);
+          const omega = wrapAngle(grabRef.current.theta - grabRef.current.lastTheta) / dtGrab;
+          grabRef.current.lastTheta = grabRef.current.theta;
+          grabRef.current.lastT = now;
+          return [grabRef.current.theta, Math.max(-14, Math.min(14, omega))];
+        }
         const tau = control === 'swingup' ? swingUpController(s) : 0;
         const next = INTEGRATORS[integrator](s, tau, dt);
         tRef.current += dt;
@@ -128,9 +143,22 @@ export function PendleSim() {
               onPlayPause={() => setPlaying((p) => !p)}
               onReset={() => {
                 setPlaying(false);
+                setPushCount(0);
                 reset();
               }}
             />
+            <button
+              type="button"
+              onClick={() => {
+                // An impulse, as if someone knocked the pole.
+                setState(([th, om]) => [th, om + (Math.random() > 0.5 ? 3.2 : -3.2)]);
+                setPushCount((n) => n + 1);
+                setPlaying(true);
+              }}
+              className="rounded-md border border-hairline px-2.5 py-1.5 text-[12px] font-medium text-ink-secondary transition-colors hover:bg-surface-sunken hover:text-ink"
+            >
+              Knock it ({pushCount})
+            </button>
           </div>
           <Slider
             label="Time step Δt"
@@ -147,7 +175,7 @@ export function PendleSim() {
           />
         </div>
       }
-      caption="With τ = 0 the true system conserves energy exactly. Explicit Euler's energy climbs without bound (the pendulum spins up out of nothing), semi-implicit Euler oscillates around the truth, and RK4 tracks it to fourth order. Chapter 15 shows the same arithmetic deciding whether a policy trained in simulation survives contact with a real robot."
+      caption="Grab the bob and fling it, or knock it with the button — then switch the torque to energy swing-up and watch the controller fight its way back to upright. With τ = 0 the true system conserves energy exactly. Explicit Euler's energy climbs without bound (the pendulum spins up out of nothing), semi-implicit Euler oscillates around the truth, and RK4 tracks it to fourth order. Chapter 15 shows the same arithmetic deciding whether a policy trained in simulation survives contact with a real robot."
     >
       <div className="grid gap-4 lg:grid-cols-[260px,1fr]">
         <div>
@@ -155,8 +183,25 @@ export function PendleSim() {
             width={260}
             height={220}
             viewBox="0 0 260 220"
-            className="max-w-full rounded-lg"
-            style={{ background: 'var(--surface-sunken)' }}
+            className="max-w-full touch-none rounded-lg"
+            style={{ background: 'var(--surface-sunken)', cursor: grabbed ? 'grabbing' : 'default' }}
+            onPointerMove={(e) => {
+              if (!grabRef.current) return;
+              const r = e.currentTarget.getBoundingClientRect();
+              const sc = 260 / r.width;
+              const x = (e.clientX - r.left) * sc - 130;
+              const y = (e.clientY - r.top) * sc - 110;
+              // Screen y grows downward; θ = 0 is straight up.
+              grabRef.current.theta = Math.atan2(x, -y);
+            }}
+            onPointerUp={() => {
+              grabRef.current = null;
+              setGrabbed(false);
+            }}
+            onPointerLeave={() => {
+              grabRef.current = null;
+              setGrabbed(false);
+            }}
             role="img"
             aria-label={`Pendulum at angle ${(wrapAngle(theta) * 180 / Math.PI).toFixed(0)} degrees from upright`}
           >
@@ -185,11 +230,33 @@ export function PendleSim() {
                 <circle
                   cx={bobX}
                   cy={bobY}
-                  r={11}
+                  r={13}
                   fill={seriesColor(0, mode)}
-                  stroke="var(--surface-1)"
-                  strokeWidth={2}
+                  stroke={grabbed ? 'var(--series-4)' : 'var(--surface-1)'}
+                  strokeWidth={grabbed ? 3 : 2}
+                  style={{ cursor: 'grab' }}
+                  onPointerDown={(e) => {
+                    e.currentTarget.setPointerCapture?.(e.pointerId);
+                    grabRef.current = {
+                      theta: state[0],
+                      lastTheta: state[0],
+                      lastT: performance.now(),
+                    };
+                    setGrabbed(true);
+                    setPlaying(true);
+                  }}
                 />
+                {!grabbed && (
+                  <text
+                    x={bobX}
+                    y={bobY - 20}
+                    textAnchor="middle"
+                    fontSize={9}
+                    fill="var(--text-muted)"
+                  >
+                    drag me
+                  </text>
+                )}
               </>
             )}
             {diverged && (

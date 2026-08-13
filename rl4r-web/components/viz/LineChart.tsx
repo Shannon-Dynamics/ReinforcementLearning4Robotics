@@ -56,11 +56,15 @@ export function LineChart({
   legendOverride,
 }: LineChartProps) {
   const { mode } = useTheme();
-  const colors = data.map((_, i) => seriesColor(i, mode));
+  // A series with no points makes the line generator return null, which the
+  // browser then rejects as an invalid `d` attribute. Drop empties here so no
+  // caller has to remember to.
+  const seriesWithData = data.filter((s) => s.data && s.data.length > 0);
+  const colors = seriesWithData.map((_, i) => seriesColor(i, mode));
 
   const legendItems =
     legendOverride ??
-    data.map((s, i) => ({
+    seriesWithData.map((s, i) => ({
       label: String(s.id),
       color: colors[i],
       dashed: dashed.includes(String(s.id)),
@@ -77,7 +81,7 @@ export function LineChart({
       legend={<Legend items={legendItems} />}
     >
       <ResponsiveLine
-        data={data}
+        data={seriesWithData}
         theme={nivoTheme(mode)}
         colors={colors}
         margin={{ top: 14, right: 22, bottom: xLegend ? 46 : 32, left: yLegend ? 58 : 46 }}

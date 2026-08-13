@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ACTION_ARROWS, GridWorld } from '@/lib/rl/gridworld';
 import { useTheme } from '@/components/layout/ThemeProvider';
 import { sequentialColor } from '@/lib/theme';
@@ -24,6 +24,7 @@ export function GridWorldCanvas({
   showPolicy = true,
   onCellClick,
   highlight,
+  dragPaint = false,
 }: {
   env: GridWorld;
   V?: Float64Array;
@@ -36,9 +37,30 @@ export function GridWorldCanvas({
   onCellClick?: (state: number) => void;
   /** States to ring, e.g. the cells touched by the current sweep. */
   highlight?: number[];
+  /**
+   * Let a held pointer paint across cells. Editing a warehouse one click at a
+   * time is tedious; dragging a wall into place is how an editor should feel.
+   */
+  dragPaint?: boolean;
 }) {
   const { mode } = useTheme();
   const [hover, setHover] = useState<number | null>(null);
+  const painting = useRef(false);
+  // Cells already painted during this drag, so crossing one twice does not
+  // toggle it back off.
+  const paintedThisDrag = useRef<Set<number>>(new Set());
+
+  const paint = (s: number) => {
+    if (!onCellClick) return;
+    if (paintedThisDrag.current.has(s)) return;
+    paintedThisDrag.current.add(s);
+    onCellClick(s);
+  };
+
+  const endPaint = () => {
+    painting.current = false;
+    paintedThisDrag.current.clear();
+  };
 
   const { vMin, vMax } = useMemo(() => {
     if (!V) return { vMin: 0, vMax: 1 };
@@ -75,9 +97,14 @@ export function GridWorldCanvas({
         width={w}
         height={h}
         viewBox={`0 0 ${w} ${h}`}
-        className="max-w-full"
+        className="max-w-full touch-none"
         role="img"
         aria-label="Rusty's warehouse grid: value function heatmap with greedy policy arrows"
+        onPointerUp={endPaint}
+        onPointerLeave={() => {
+          endPaint();
+          setHover(null);
+        }}
       >
         {/* Cells */}
         {Array.from({ length: env.rows }, (_, r) =>
@@ -109,10 +136,23 @@ export function GridWorldCanvas({
                   fill={fill}
                   stroke="var(--surface-1)"
                   strokeWidth={1}
-                  onMouseEnter={() => !shelf && setHover(s)}
-                  onMouseLeave={() => setHover(null)}
-                  onClick={() => !shelf && onCellClick?.(s)}
-                  style={{ cursor: onCellClick && !shelf ? 'pointer' : 'default' }}
+                  onPointerEnter={() => {
+                    if (!shelf) setHover(s);
+                    // Shelves are paintable too — that is how you erase a wall.
+                    if (dragPaint && painting.current) paint(s);
+                  }}
+                  onPointerDown={(e) => {
+                    if (!onCellClick) return;
+                    e.preventDefault();
+                    if (dragPaint) {
+                      painting.current = true;
+                      paintedThisDrag.current.clear();
+                      paint(s);
+                    } else if (!shelf) {
+                      onCellClick(s);
+                    }
+                  }}
+                  style={{ cursor: onCellClick ? 'pointer' : 'default' }}
                 />
                 {highlightSet.has(s) && (
                   <rect

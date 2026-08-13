@@ -12,10 +12,29 @@ npm run dev      # http://localhost:3000
 Requires Node 18.18+ (Next.js 15). Other scripts:
 
 ```bash
-npm run build      # production build; also the correctness gate
+npm run build      # static export into out/; also the correctness gate
 npm run typecheck  # tsc --noEmit
 npm run lint
 ```
+
+## Deployment: no server, ever
+
+`npm run build` produces a **fully static site in `out/`** — plain HTML, JS and
+CSS. There are no API routes, no server actions, no middleware and no image
+optimizer, so nothing needs a Node process or a serverless function at runtime.
+Drop `out/` on any static host (S3, GitHub Pages, Netlify, nginx, a USB stick)
+and the whole book works.
+
+Everything the book computes, it computes in the reader's browser:
+
+| Work | Where it happens |
+|---|---|
+| MDX → HTML, KaTeX math, Shiki highlighting | Build time |
+| Value iteration, Q-learning, bandit testbeds, kinematics | Main thread, client |
+| Neural training, gait optimization, randomized transfer | **Web Worker**, client |
+
+Verified by serving `out/` with `python3 -m http.server` and confirming in a
+real browser that the workers run and every simulation returns a result.
 
 ## Layout
 
@@ -30,7 +49,7 @@ rl4r-web/
 │   ├── layout/               # header, theme provider, chapter navigation
 │   ├── book/                 # MDX component map, callouts, quotes, exercises
 │   ├── viz/                  # Nivo chart wrappers + chart chrome
-│   └── sim/                  # 19 interactive simulations
+│   └── sim/                  # 25 interactive simulations
 └── lib/
     ├── chapters.ts           # the TOC as typed data (mirrors ../TOC.md)
     ├── theme.ts              # the validated palette and Nivo theme
@@ -38,9 +57,35 @@ rl4r-web/
     └── rl/                   # the simulation engine (see below)
 ```
 
+### Interaction, not just parameters
+
+A slider that redraws a chart is parameter tweaking. These widgets give the
+reader something to *do*, with consequences:
+
+| Widget | What you do |
+|---|---|
+| `BanditTestbed` (Ch 3) | Pull the arms yourself; your regret is raced against UCB and ε-greedy on the same problem |
+| `PendleSim` (Ch 2) | Grab the bob and fling it, or knock it, and watch the controller recover |
+| `WarehouseEditor` (Ch 4) | Drag-paint walls and slip patches; value iteration re-solves on every edit |
+| `GpiDashboard` (Ch 5) | Click a cell to corrupt its value, then step forward and watch GPI repair it |
+| `TdDashboard` (Ch 6) | Drive Rusty with the arrow keys, blind, and see the agent overtake your best run |
+| `RewardDesigner` (Ch 14) | Compose a reward and watch the optimal policy exploit it |
+| `DmpSculptor` (Ch 17) | Draw a demonstration freehand; LWR fits the primitive to your curve |
+| `ReacherKinematics` (Ch 13) | Drag the end-effector; IK solves and the manipulability ellipsoid responds |
+| `GraspWrench` (Ch 20) | Drag contact points until force closure fails |
+| `SharedAutonomy` (Ch 21) | Set the blend and feel task success trade against your sense of control |
+
 ### The simulation engine
 
-Every interactive runs real algorithms, not canned animations. [lib/rl/](lib/rl/) contains:
+Almost every interactive runs the real algorithm rather than a canned animation.
+The exception is labelled as such in its own interface: `PipelineSwitcher`
+(Ch 19) compares navigation architectures whose training cannot run in a
+browser, so its curves encode the survey's qualitative findings. Everything
+else — including the reward mixer's gait optimizer, the replay/target-network
+ablation, the behaviour-cloning drift, the dynamics ensemble and the
+randomization transfer — computes what it displays.
+
+[lib/rl/](lib/rl/) contains:
 
 | Module | Contents |
 |---|---|
@@ -50,6 +95,16 @@ Every interactive runs real algorithms, not canned animations. [lib/rl/](lib/rl/
 | `bandits.ts` | ε-greedy, UCB1, gradient bandit, Thompson sampling, and the 10-armed testbed harness |
 | `td.ts` | MC prediction, TD(0), SARSA, Expected SARSA, Q-learning, Double Q, Sarsa(λ) |
 | `pendulum.ts` | Pendle's dynamics with Euler / semi-implicit / RK4 integrators and an energy-shaping controller |
+| `nn.ts` | A minimal MLP with SGD + momentum — enough for behaviour cloning and one-step dynamics models |
+| `tiles.ts` | Tile coding and semi-gradient SARSA, Chapter 8's workhorse |
+| `dynamics.ts` | Learned dynamics ensembles (bootstrap resampled) and a CEM planner |
+| `rewardlab.ts` | A gridworld whose reward the reader composes, solved exactly so reward hacking is demonstrably the optimum rather than a training failure |
+| `walker.ts` | A planar reduction of Ferris — leg spring-dampers, friction cone, contact scheduling — plus an evolution strategy that optimizes a gait against a reward |
+
+Heavy simulations run in a **Web Worker** ([lib/sim/worker.ts](lib/sim/worker.ts)),
+driven by the `useSimulation` hook, so training never blocks the page. Widget
+settings are mirrored into the URL by `useWidgetState`, which makes any
+configuration shareable and lets prose link to a specific view.
 
 Constants match the chapter designs exactly — the warehouse is 12×9 with `p_slip = 0.2`, `γ = 0.95`, rewards +25 / −1 / −10, as fixed in Chapter 4 and reused through Chapter 7.
 
@@ -75,7 +130,7 @@ Components available in MDX without importing (see [components/book/MdxContent.t
 - **Code** — `RustSnippet` wrapping a fenced ` ```rust ` block
 - **Ending** — `Exercises`, `CodingTask`, `References`
 - **Charts** — `LineChart`, `BarChart`, `StatRow`, `StatTile`
-- **Simulations** — `RustyDrive`, `SuccessLevels`, `PendleSim`, `ContractionDemo`, `BanditTestbed`, `MdpExplorer`, `GpiDashboard`, `TdDashboard`, `LambdaDial`, `DeadlyTriad`, `ReplayBuffer`, `PolicyGradientLab`, `EntropyDial`, `ModelBiasFan`, `CurseOfDimensionality`, `DomainRandomization`, `CovariateShift`, `DmpSculptor`, `RewardMixer`, `PipelineSwitcher`, `GraspWrench`
+- **Simulations** — `RustyDrive`, `SuccessLevels`, `PendleSim`, `ContractionDemo`, `BanditTestbed`, `MdpExplorer`, `GpiDashboard`, `TdDashboard`, `LambdaDial`, `DeadlyTriad`, `ReplayBuffer`, `PolicyGradientLab`, `EntropyDial`, `ModelBiasFan`, `CurseOfDimensionality`, `DomainRandomization`, `CovariateShift`, `DmpSculptor`, `RewardMixer`, `PipelineSwitcher`, `GraspWrench`, `ReacherKinematics`, `SharedAutonomy`, `MissionControl`, `WarehouseEditor`, `RewardDesigner`
 
 Math is KaTeX: `$inline$` and `$$display$$`. Code blocks are highlighted at build time by Shiki, so no highlighting JS ships to the reader.
 

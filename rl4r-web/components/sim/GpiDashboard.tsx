@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { GridWorld } from '@/lib/rl/gridworld';
+import { GridWorld, type Action } from '@/lib/rl/gridworld';
 import { collect, policyIteration, valueIteration, type DpSnapshot } from '@/lib/rl/dp';
 import { policyEvaluation } from '@/lib/rl/dp';
 import { GridWorldCanvas, ValueLegend } from './GridWorldCanvas';
@@ -28,6 +28,13 @@ export function GpiDashboard() {
   const [index, setIndex] = useState(0);
   const raf = useRef<number | null>(null);
   const acc = useRef(0);
+  /**
+   * Values the reader has corrupted by hand. GPI is self-correcting, and the
+   * most direct way to show that is to let someone break it and watch the
+   * subsequent sweeps repair the damage.
+   */
+  const [damage, setDamage] = useState<Map<number, number>>(new Map());
+  const [damageAt, setDamageAt] = useState<number | null>(null);
 
   const env = useMemo(() => new GridWorld(undefined, { gamma, pSlip }), [gamma, pSlip]);
 
@@ -40,7 +47,11 @@ export function GpiDashboard() {
     return collect(policyEvaluation(env, fixed, 1e-4, 200));
   }, [env, mode]);
 
-  useEffect(() => setIndex(0), [mode, gamma, pSlip]);
+  useEffect(() => {
+    setIndex(0);
+    setDamage(new Map());
+    setDamageAt(null);
+  }, [mode, gamma, pSlip]);
 
   useEffect(() => {
     if (!playing) return;
@@ -68,7 +79,32 @@ export function GpiDashboard() {
     };
   }, [playing, speed, snapshots.length]);
 
-  const snap = snapshots[Math.min(index, snapshots.length - 1)];
+  const rawSnap = snapshots[Math.min(index, snapshots.length - 1)];
+
+  // Re-run the Bellman operator forward from the damaged values so the healing
+  // shown is the algorithm's own, not an animation of one.
+  const snap = useMemo(() => {
+    if (!rawSnap || damage.size === 0 || damageAt === null) return rawSnap;
+    const base = snapshots[Math.min(damageAt, snapshots.length - 1)];
+    const V = Float64Array.from(base.V);
+    damage.forEach((v, s) => {
+      V[s] = v;
+    });
+    const sweepsSince = Math.max(0, index - damageAt);
+    for (let k = 0; k < sweepsSince; k++) {
+      for (const s of env.states) {
+        if (env.isTerminal(s)) continue;
+        let best = -Infinity;
+        for (let a = 0 as Action; a < 4; a = (a + 1) as Action) {
+          best = Math.max(best, env.actionValue(s, a, V));
+        }
+        V[s] = best;
+      }
+    }
+    let delta = 0;
+    for (const s of env.states) delta = Math.max(delta, Math.abs(V[s] - rawSnap.V[s]));
+    return { ...rawSnap, V, policy: env.greedyPolicy(V), delta: sweepsSince === 0 ? rawSnap.delta : delta };
+  }, [rawSnap, damage, damageAt, snapshots, index, env]);
   const vRange = useMemo(() => {
     if (!snap) return { lo: 0, hi: 1 };
     let lo = Infinity;
@@ -124,6 +160,18 @@ export function GpiDashboard() {
               speed={speed}
               onSpeedChange={setSpeed}
             />
+            {damage.size > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDamage(new Map());
+                  setDamageAt(null);
+                }}
+                className="rounded-md border border-hairline px-2.5 py-1.5 text-[12px] text-ink-secondary transition-colors hover:bg-surface-sunken hover:text-ink"
+              >
+                Undo damage ({damage.size})
+              </button>
+            )}
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <Slider
@@ -159,12 +207,24 @@ export function GpiDashboard() {
           </div>
         </div>
       }
-      caption="Drag γ toward 1 and watch value spread further from the dock before decaying — the effective horizon 1/(1−γ) made visible. Raise p_slip and the optimal policy stops hugging the shelves, because a slip into a shelf costs −10."
+      caption="Click any cell to smash its value to nonsense, then step forward: the next sweeps pull it back, and the damage bleeds outward one cell per sweep before disappearing. Nothing special handles the repair — it is the same Bellman backup running, which is exactly what &ldquo;self-correcting&rdquo; means. Drag γ toward 1 and watch value spread further from the dock before decaying — the effective horizon 1/(1−γ) made visible. Raise p_slip and the optimal policy stops hugging the shelves, because a slip into a shelf costs −10."
     >
       <div className="grid gap-4 lg:grid-cols-[auto,1fr]">
         <div>
           <GridWorldCanvas
             env={env}
+            onCellClick={(cell) => {
+              if (env.isTerminal(cell)) return;
+              setPlaying(false);
+              setDamage((prev) => {
+                const next = new Map(prev);
+                // Slam the value far from anything the operator would produce.
+                next.set(cell, snap.V[cell] - 60);
+                return next;
+              });
+              setDamageAt(index);
+            }}
+            highlight={[...damage.keys()]}
             V={snap.V}
             policy={snap.policy}
             showPolicy
