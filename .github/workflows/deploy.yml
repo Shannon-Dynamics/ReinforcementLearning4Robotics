@@ -1,0 +1,84 @@
+name: Deploy book to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    # Only rebuild when something that affects the site changes.
+    paths:
+      - 'rl4r-web/**'
+      - '.github/workflows/deploy.yml'
+  # Allows a manual run from the Actions tab.
+  workflow_dispatch:
+
+# GITHUB_TOKEN needs these to publish to Pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it midway, but keep only
+# one queued behind it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rl4r-web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: rl4r-web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Build static export
+        # A project site lives at /<repo>/, so the app is built with that prefix.
+        # steps.pages.outputs.base_path is '' for a user/org site, so this works
+        # unchanged if the repo is ever renamed to <org>.github.io.
+        env:
+          NEXT_PUBLIC_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+        run: npm run build
+
+      - name: Disable Jekyll
+        # Without this, a Pages build would strip the _next/ directory because
+        # Jekyll ignores paths beginning with an underscore.
+        run: touch out/.nojekyll
+
+      - name: Verify the export looks complete
+        run: |
+          pages=$(find out -name '*.html' | wc -l)
+          echo "generated $pages HTML pages"
+          test "$pages" -ge 27 || { echo "expected at least 27 pages"; exit 1; }
+          test -f out/index.html || { echo "missing landing page"; exit 1; }
+          test -d out/chapters/why-rl-for-robotics || { echo "missing chapter route"; exit 1; }
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: rl4r-web/out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

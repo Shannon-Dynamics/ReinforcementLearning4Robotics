@@ -2,13 +2,14 @@
   "name": "rl4r-web",
   "version": "0.1.0",
   "private": true,
-  "description": "Reinforcement Learning for Robotics — The FCP Way. An interactive web book.",
+  "description": "Reinforcement Learning for Robotics \u2014 The FCP Way. An interactive web book.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:pages": "NEXT_PUBLIC_BASE_PATH=/ReinforcementLearning4Robotics next build"
   },
   "dependencies": {
     "@nivo/bar": "^0.99.0",

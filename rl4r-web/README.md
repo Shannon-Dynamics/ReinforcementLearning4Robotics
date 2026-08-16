@@ -17,13 +17,54 @@ npm run typecheck  # tsc --noEmit
 npm run lint
 ```
 
-## Deployment: no server, ever
+## Deployment
+
+### GitHub Pages (automated)
+
+Pushing to `main` builds and publishes the book via
+[.github/workflows/deploy.yml](../.github/workflows/deploy.yml). The site lands at:
+
+```
+https://shannon-dynamics.github.io/ReinforcementLearning4Robotics/
+```
+
+One-time setup in the repository: **Settings → Pages → Build and deployment →
+Source: GitHub Actions**. Nothing else is required; the workflow requests the
+`pages: write` and `id-token: write` permissions it needs.
+
+Two details that break most Next.js Pages deployments, both handled here:
+
+- **A project site is served from `/<repo>/`, not `/`.** The workflow passes
+  `NEXT_PUBLIC_BASE_PATH` from `actions/configure-pages`, and
+  [next.config.mjs](next.config.mjs) applies it as both `basePath` and
+  `assetPrefix` — the latter matters because the Web Worker chunk is resolved
+  against it. Because the value comes from the action, renaming the repo (or
+  moving to an `<org>.github.io` user site, where the prefix is empty) needs no
+  code change.
+- **Jekyll would delete `_next/`,** since it ignores paths starting with an
+  underscore. `public/.nojekyll` ships in every export, and the workflow writes
+  one too.
+
+To reproduce a Pages build locally:
+
+```bash
+npm run build:pages
+# then serve it from a matching subdirectory, because paths are absolute:
+mkdir -p /tmp/pages && cp -r out /tmp/pages/ReinforcementLearning4Robotics
+(cd /tmp/pages && python3 -m http.server 8110)
+# open http://127.0.0.1:8110/ReinforcementLearning4Robotics/
+```
+
+Serving `out/` directly at the domain root will 404 on every asset — that is
+expected, not a bug, because the build was told it lives under a prefix.
+
+### Anywhere else: no server, ever
 
 `npm run build` produces a **fully static site in `out/`** — plain HTML, JS and
 CSS. There are no API routes, no server actions, no middleware and no image
 optimizer, so nothing needs a Node process or a serverless function at runtime.
-Drop `out/` on any static host (S3, GitHub Pages, Netlify, nginx, a USB stick)
-and the whole book works.
+Drop `out/` on any static host (S3, Netlify, nginx, a USB stick) and the whole
+book works.
 
 Everything the book computes, it computes in the reader's browser:
 
@@ -33,8 +74,9 @@ Everything the book computes, it computes in the reader's browser:
 | Value iteration, Q-learning, bandit testbeds, kinematics | Main thread, client |
 | Neural training, gait optimization, randomized transfer | **Web Worker**, client |
 
-Verified by serving `out/` with `python3 -m http.server` and confirming in a
-real browser that the workers run and every simulation returns a result.
+Verified by serving the export from a subdirectory and confirming in a real
+browser that all 22 chapters render, the workers run, client-side navigation
+keeps the base path, and no request 404s.
 
 ## Layout
 

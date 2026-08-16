@@ -1,3 +1,13 @@
+/**
+ * GitHub Pages serves a project site from a subdirectory:
+ *   https://<org>.github.io/<repo>/
+ *
+ * Next needs to know that prefix at build time, or every asset and link
+ * resolves against the domain root and 404s. The CI workflow sets
+ * NEXT_PUBLIC_BASE_PATH; local `npm run dev` leaves it unset and serves from /.
+ */
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   /**
@@ -14,6 +24,11 @@ const nextConfig = {
    * its paths through generateStaticParams (chapters do).
    */
   output: 'export',
+
+  basePath,
+  // Asset URLs must carry the prefix too, including the Web Worker chunk that
+  // webpack emits from `new URL('./worker.ts', import.meta.url)`.
+  assetPrefix: basePath || undefined,
 
   // Static hosts serve /chapters/slug/index.html; the trailing slash keeps
   // relative asset paths resolving correctly on hosts without rewrite rules.
